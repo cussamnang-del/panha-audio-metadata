@@ -17,7 +17,6 @@ pytest.importorskip("PyQt6")
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from panha.dialogs.ai_detector_dialog import AIDetectorDialog  # noqa: E402
-from panha.dialogs.config_dialog import ConfigDialog  # noqa: E402
 from panha.dialogs.export_settings_dialog import (  # noqa: E402
     ExportSettings,
     ExportSettingsDialog,
@@ -109,22 +108,6 @@ def test_transport_bar_emits_bypass_signal(qapp):
     bar.btn_bypass.click()
     assert received == [True, False]
     bar.deleteLater()
-
-
-def test_config_dialog_emits_action_signals(qapp):
-    dlg = ConfigDialog()
-    fired: list[str] = []
-    dlg.add_files_requested.connect(lambda: fired.append("add_files"))
-    dlg.start_export_requested.connect(lambda: fired.append("start"))
-    dlg.stop_export_requested.connect(lambda: fired.append("stop"))
-    dlg.btn_add_files.click()
-    dlg.btn_start.click()
-    dlg.btn_stop.click()
-    assert fired == ["add_files", "start", "stop"]
-    dlg.set_export_running(True)
-    assert dlg.btn_start.isEnabled() is False
-    assert dlg.btn_stop.isEnabled() is True
-    dlg.deleteLater()
 
 
 def test_ai_detector_dialog_lists_added_files(qapp, tmp_path: Path):
@@ -243,18 +226,54 @@ def test_export_settings_dialog_disables_bit_depth_for_non_wav(qapp):
     dlg.deleteLater()
 
 
-def test_main_window_analyze_ai_opens_file_information(qapp):
-    """Clicking 'Analyze AI' must invoke the File Information dialog so
-    the user lands directly on the metadata-editing flow rather than the
-    placeholder AI detector view."""
+def test_main_window_config_opens_file_information(qapp):
+    """Clicking 'Config' on the Setting Console must open the File
+    Information dialog (not a separate batch-actions panel) so users
+    land directly on the metadata-editing flow."""
     from unittest.mock import patch
 
     win = MainWindow()
     try:
         with patch.object(win, "_on_open_info_dialog") as mock_open:
-            win._on_analyze_ai()
+            win._on_open_config()
         mock_open.assert_called_once_with()
     finally:
+        win.system_stats.stop()
+        win.close()
+
+
+def test_main_window_analyze_ai_opens_ai_detector(qapp, tmp_path: Path):
+    """Clicking 'Analyze AI' must launch the AI Music Detector dialog
+    seeded with the queue's current files, not the metadata editor."""
+    win = MainWindow()
+    try:
+        # Seed a single fake row so the seeded `add_paths` call has
+        # something to ingest. The path doesn't need to exist on disk
+        # because AIDetectorDialog.add_paths filters by extension only.
+        fake = tmp_path / "track.mp3"
+        fake.write_bytes(b"")
+        win._rows.append(type("R", (), {
+            "path": str(fake),
+            "filename": fake.name,
+            "duration_seconds": 0.0,
+            "file_type": "MP3",
+            "status": "Pending",
+        })())
+
+        assert win._ai_dialog is None
+        win._on_analyze_ai()
+        assert isinstance(win._ai_dialog, AIDetectorDialog)
+        assert win._ai_dialog.windowTitle() == "AI Music Detector"
+        assert win._ai_dialog.table.rowCount() == 1
+        assert win._ai_dialog.table.item(0, 0).text() == fake.name
+
+        # A second click is idempotent: the dialog instance is reused
+        # and the queue row isn't duplicated.
+        win._on_analyze_ai()
+        assert win._ai_dialog.table.rowCount() == 1
+    finally:
+        if win._ai_dialog is not None:
+            win._ai_dialog.close()
         win.system_stats.stop()
         win.close()
 
