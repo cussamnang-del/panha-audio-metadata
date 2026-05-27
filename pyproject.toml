@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "panha-audio-metadata"
+version = "0.1.0"
+description = "PyQt6 + ffmpeg desktop app for batch editing MP3 metadata (cover, title, artist, album, year, genre, comment)."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Panha" }]
+license = { text = "MIT" }
+keywords = ["mp3", "metadata", "id3", "pyqt6", "ffmpeg", "audio"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Sound/Audio :: Editors",
+    "Environment :: X11 Applications :: Qt",
+]
+dependencies = [
+    "PyQt6>=6.6",
+    "PyQt6-Qt6>=6.6",
+    "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-qt>=4.4",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+panha = "panha.app:main"
+
+[project.gui-scripts]
+"panha-audio-metadata" = "panha.app:main"
+
+[tool.setuptools.packages.find]
+include = ["panha*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
