@@ -49,7 +49,6 @@ from PyQt6.QtWidgets import (
 
 from . import __app_name__, __version__
 from .dialogs import (
-    AIDetectorDialog,
     ConfigDialog,
     ExportSettings,
     ExportSettingsDialog,
@@ -98,7 +97,6 @@ class MainWindow(QMainWindow):
         self._templates = TemplateStore()
         self._current_template_name: str = ""
         self._config_dialog: ConfigDialog | None = None
-        self._ai_dialog: AIDetectorDialog | None = None
 
         self._build_ui()
         self._refresh_template_combo()
@@ -471,14 +469,10 @@ class MainWindow(QMainWindow):
         self._config_dialog.activateWindow()
 
     def _on_analyze_ai(self) -> None:
-        if self._ai_dialog is None:
-            self._ai_dialog = AIDetectorDialog(self)
-        # Seed the dialog with the queue's current files so the user
-        # doesn't have to re-pick them.
-        self._ai_dialog.add_paths([row.path for row in self._rows])
-        self._ai_dialog.show()
-        self._ai_dialog.raise_()
-        self._ai_dialog.activateWindow()
+        # The Analyze AI button is wired straight to the File Information
+        # dialog so the user can review and adjust the metadata that will
+        # be written to the queued files before kicking off an export.
+        self._on_open_info_dialog()
 
     # -- slots: mastering / transport ----------------------------------
 
@@ -709,8 +703,6 @@ class MainWindow(QMainWindow):
                 self._thread.wait(1000)
         self.transport.stop()
         self.system_stats.stop()
-        if self._ai_dialog is not None:
-            self._ai_dialog.close()
         if self._config_dialog is not None:
             self._config_dialog.close()
         super().closeEvent(event)
