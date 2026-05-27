@@ -9,10 +9,12 @@ Layout is modelled on the X-MIXM reference design:
     [ Transport bar (prev/play/next/BYPASS + scrubber) ]
     [ Status bar: license + footer + CPU/RAM ]
 
-Operational actions (Add Files / Add Folder / Output / Start / Stop /
-File Information / Export Settings) live behind the **Config** button in
-the Setting Console and the queue's right-click context menu, so the
-main surface stays focused on mixing.
+Operational actions (Add Files / Add Folder / Remove / Clear / Start /
+Stop / Open output) live on the queue's right-click context menu so the
+main surface stays focused on mixing. The Setting Console's **Config**
+button opens the File Information dialog directly (the metadata that
+will be written on export), and **Analyze AI** opens the dormant AI
+music-detector view seeded with the queue's current files.
 """
 
 from __future__ import annotations
@@ -49,7 +51,7 @@ from PyQt6.QtWidgets import (
 
 from . import __app_name__, __version__
 from .dialogs import (
-    ConfigDialog,
+    AIDetectorDialog,
     ExportSettings,
     ExportSettingsDialog,
     FileInformationDialog,
@@ -96,7 +98,7 @@ class MainWindow(QMainWindow):
         self._thread: QThread | None = None
         self._templates = TemplateStore()
         self._current_template_name: str = ""
-        self._config_dialog: ConfigDialog | None = None
+        self._ai_dialog: AIDetectorDialog | None = None
 
         self._build_ui()
         self._refresh_template_combo()
@@ -290,8 +292,6 @@ class MainWindow(QMainWindow):
         self.btn_reset_all.setEnabled(not running)
         self.btn_config.setEnabled(True)
         self.btn_analyze_ai.setEnabled(has_rows and not running)
-        if self._config_dialog is not None:
-            self._config_dialog.set_export_running(running)
 
     def _refresh_table(self) -> None:
         self.table.setRowCount(len(self._rows))
@@ -453,26 +453,21 @@ class MainWindow(QMainWindow):
         self._update_buttons()
 
     def _on_open_config(self) -> None:
-        if self._config_dialog is None:
-            dlg = ConfigDialog(self)
-            dlg.add_files_requested.connect(self._on_add_files)
-            dlg.add_folder_requested.connect(self._on_add_folder)
-            dlg.output_folder_requested.connect(self._on_pick_output)
-            dlg.file_information_requested.connect(self._on_open_info_dialog)
-            dlg.export_settings_requested.connect(self._on_open_export_dialog)
-            dlg.start_export_requested.connect(self._on_start_export)
-            dlg.stop_export_requested.connect(self._on_stop_export)
-            self._config_dialog = dlg
-        self._config_dialog.set_export_running(self._worker is not None)
-        self._config_dialog.show()
-        self._config_dialog.raise_()
-        self._config_dialog.activateWindow()
+        # The Setting Console's Config button opens the File Information
+        # dialog directly. Batch operations (Add Files / Add Folder /
+        # Output Folder / Export Settings / Start / Stop Export) live on
+        # the queue's right-click context menu instead.
+        self._on_open_info_dialog()
 
     def _on_analyze_ai(self) -> None:
-        # The Analyze AI button is wired straight to the File Information
-        # dialog so the user can review and adjust the metadata that will
-        # be written to the queued files before kicking off an export.
-        self._on_open_info_dialog()
+        if self._ai_dialog is None:
+            self._ai_dialog = AIDetectorDialog(self)
+        # Seed the dialog with the queue's current files so the user
+        # doesn't have to re-pick them.
+        self._ai_dialog.add_paths([row.path for row in self._rows])
+        self._ai_dialog.show()
+        self._ai_dialog.raise_()
+        self._ai_dialog.activateWindow()
 
     # -- slots: mastering / transport ----------------------------------
 
@@ -703,6 +698,6 @@ class MainWindow(QMainWindow):
                 self._thread.wait(1000)
         self.transport.stop()
         self.system_stats.stop()
-        if self._config_dialog is not None:
-            self._config_dialog.close()
+        if self._ai_dialog is not None:
+            self._ai_dialog.close()
         super().closeEvent(event)
