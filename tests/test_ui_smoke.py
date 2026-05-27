@@ -243,6 +243,22 @@ def test_export_settings_dialog_disables_bit_depth_for_non_wav(qapp):
     dlg.deleteLater()
 
 
+def test_main_window_analyze_ai_opens_file_information(qapp):
+    """Clicking 'Analyze AI' must invoke the File Information dialog so
+    the user lands directly on the metadata-editing flow rather than the
+    placeholder AI detector view."""
+    from unittest.mock import patch
+
+    win = MainWindow()
+    try:
+        with patch.object(win, "_on_open_info_dialog") as mock_open:
+            win._on_analyze_ai()
+        mock_open.assert_called_once_with()
+    finally:
+        win.system_stats.stop()
+        win.close()
+
+
 def test_main_window_blocks_clear_during_export(qapp):
     """Clear / Remove from the right-click menu must not silently destroy
     queued rows while a batch is still being processed -- otherwise the
