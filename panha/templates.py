@@ -10,14 +10,23 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-DEFAULT_TEMPLATES_PATH = Path.home() / ".panha_templates.json"
+DEFAULT_TEMPLATES_FILENAME = ".panha_templates.json"
+
+
+def default_templates_path() -> Path:
+    """Resolve the default templates JSON path lazily.
+
+    Computed on each call (rather than at import time) so tests can
+    monkeypatch :meth:`pathlib.Path.home` before constructing a store.
+    """
+    return Path.home() / DEFAULT_TEMPLATES_FILENAME
 
 
 class TemplateStore:
     """Thin read/write wrapper around the templates JSON file."""
 
     def __init__(self, path: str | Path | None = None) -> None:
-        self.path = Path(path) if path is not None else DEFAULT_TEMPLATES_PATH
+        self.path = Path(path) if path is not None else default_templates_path()
 
     def load(self) -> dict[str, dict]:
         if not self.path.exists():
