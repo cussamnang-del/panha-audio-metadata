@@ -742,7 +742,12 @@ class MainWindow(QMainWindow):
         self._export_settings = dlg.collect()
         self._output_dir = self._export_settings.output_dir
 
-        if not self._info_state.enabled:
+        suno_on = self._export_settings.suno_bypass
+
+        # When SUNO Bypass is active we always write metadata from
+        # panha/metadata.json, so the "Info Injection disabled" check is
+        # irrelevant and must be skipped to avoid blocking the export.
+        if not suno_on and not self._info_state.enabled:
             reply = QMessageBox.question(
                 self,
                 "Info Injection disabled",
@@ -751,6 +756,7 @@ class MainWindow(QMainWindow):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
+
         sources = [row.path for row in self._rows]
         items = build_items(
             sources,

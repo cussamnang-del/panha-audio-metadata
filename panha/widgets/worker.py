@@ -153,23 +153,38 @@ def build_items(
 
     suno_bypass = bool(export.suno_bypass) if export is not None else False
 
+    # ------------------------------------------------------------------
+    # Determine the source for each data category:
+    #
+    #   Metadata fields (artist/album/genre/…):
+    #       SUNO Bypass ON  → panha/metadata.json  (clean, AI-fingerprint-free)
+    #       SUNO Bypass OFF → live UI state
+    #
+    #   Mastering chain (EQ/comp/verb/… sliders):
+    #       ALWAYS from the live UI state.  SUNO Bypass is about metadata
+    #       replacement only; the mastering effect is independent and must
+    #       always reflect what the user has dialled in.
+    #
+    #   Tracklist options (uppercase, track-number strip, cover size):
+    #       ALWAYS from the live UI state (file-processing options, not
+    #       part of the embedded metadata that SUNO bypass cleans).
+    # ------------------------------------------------------------------
+
+    # Metadata fields — conditionally from JSON
     if suno_bypass:
-        # SUNO Bypass mode: reload metadata + tracklist from
-        # panha/metadata.json so the JSON file is the single source of
-        # truth for what gets embedded into every output file.
         _store = config_store if config_store is not None else ConfigStore()
         json_state = _store.load_last_state()
         base = dataclasses.replace(json_state.metadata)
-        mastering = dataclasses.replace(json_state.mastering)
-        cover_w = json_state.tracklist.cover_size
-        cover_h = json_state.tracklist.cover_height
-        tracklist = json_state.tracklist
     else:
         base = dataclasses.replace(state.metadata)
-        mastering = dataclasses.replace(state.mastering)
-        cover_w = state.tracklist.cover_size
-        cover_h = state.tracklist.cover_height
-        tracklist = state.tracklist
+
+    # Mastering — ALWAYS live UI (ensures sliders are always audible)
+    mastering = dataclasses.replace(state.mastering)
+
+    # Tracklist — ALWAYS live UI
+    tracklist = state.tracklist
+    cover_w = tracklist.cover_size
+    cover_h = tracklist.cover_height
 
     sample_rate_hz = export.parsed_sample_rate_hz() if export is not None else None
     lufs_target_lufs = export.parsed_lufs_target() if export is not None else None
@@ -180,8 +195,8 @@ def build_items(
     # writer applies the metadata from panha/metadata.json, removing the
     # AI-platform fingerprint the detector keys off of.
     strip_source_metadata = suno_bypass
-    # Cover-art resize honours the (width, height) from the active state.
-    # Zero / negative values disable resizing.
+
+    # Cover-art resize honours the (width, height) from the live UI state.
     cover_max_size: tuple[int, int] | None = (
         (cover_w, cover_h) if cover_w > 0 and cover_h > 0 else None
     )
@@ -206,18 +221,23 @@ def build_items(
         meta = dataclasses.replace(base)
         if not meta.title:
             meta.title = stem
-        # A format change alone is not enough to flag re-encode: a WAV
-        # input written out as WAV with the same default codec args is
-        # still safely stream-copyable. We *do* flag re-encode when the
-        # user-picked codec args differ from the source-format defaults
-        # (write_metadata also derives this from codec_args_override and
-        # sample_rate_hz, but being explicit here keeps build_items the
-        # single source of truth).
+
+        # Force re-encode whenever:
+        # • a specific codec/format is requested, OR
+        # • sample-rate or LUFS target differ from source, OR
+        # • the container format changes (suffix mismatch), OR
+        # • the mastering chain is active (filter graph must be applied).
+        # write_metadata also derives this from the filter-chain string,
+        # but being explicit here makes build_items the single source of
+        # truth and avoids a surprising stream-copy when the user has
+        # live sliders engaged.
+        mastering_active = mastering.is_active()
         force_re_encode = (
             codec_args_override is not None
             or sample_rate_hz is not None
             or lufs_target_lufs is not None
             or target_suffix.lower() != source_suffix.lower()
+            or mastering_active
         )
         items.append(BatchItem(
             source=str(src_path),
