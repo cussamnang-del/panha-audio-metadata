@@ -44,6 +44,12 @@ panha = "panha.app:main"
 [tool.setuptools.packages.find]
 include = ["panha*"]
 
+[tool.setuptools.package-data]
+# Ship the bundled JSON data alongside the Python modules so factory
+# mastering presets are available in wheel installs too — not just
+# editable installs that can fall back to the on-disk source tree.
+panha = ["presets.json"]
+
 [tool.ruff]
 line-length = 110
 target-version = "py310"

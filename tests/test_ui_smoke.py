@@ -128,7 +128,9 @@ def test_config_dialog_emits_action_signals(qapp):
 
 
 def test_ai_detector_dialog_lists_added_files(qapp, tmp_path: Path):
-    dlg = AIDetectorDialog()
+    # Inject a noop scheduler so add_paths doesn't dispatch real ffprobe
+    # calls onto the global thread pool during this test.
+    dlg = AIDetectorDialog(schedule_fn=lambda *a, **k: None)
     a = tmp_path / "a.mp3"
     b = tmp_path / "b.mp3"
     c = tmp_path / "c.txt"
@@ -139,10 +141,11 @@ def test_ai_detector_dialog_lists_added_files(qapp, tmp_path: Path):
     assert added == 2, "non-audio files must be skipped"
     assert dlg.table.rowCount() == 2
     assert dlg.table.item(0, 0).text() == "a.mp3"
-    # Analysis columns start as placeholder em-dashes with a tooltip.
+    # Analysis columns start in the "Analyzing…" state and carry an
+    # explanatory tooltip until the detector lands a result.
     placeholder = dlg.table.item(0, 1)
-    assert placeholder.text() == "\u2014"
-    assert "not implemented" in placeholder.toolTip().lower()
+    assert placeholder.text().startswith("Analyzing")
+    assert "analyzing" in placeholder.toolTip().lower()
 
     # Re-adding the same file is idempotent.
     assert dlg.add_paths([str(a)]) == 0

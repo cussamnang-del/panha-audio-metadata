@@ -188,6 +188,7 @@ def write_metadata(
     codec_args_override: list[str] | None = None,
     force_re_encode: bool = False,
     cover_max_size: tuple[int, int] | None = None,
+    strip_source_metadata: bool = False,
 ) -> str:
     """Write ``meta`` to ``src`` and save the result at ``dst``.
 
@@ -288,6 +289,13 @@ def write_metadata(
         ])
 
     cmd.extend(["-id3v2_version", "3"])
+    # Drop every existing tag from the source before applying the
+    # user-supplied overrides. This is what powers the "SUNO Bypass"
+    # checkbox: AI-platform fingerprints (Suno URLs in comment, encoder
+    # strings, custom TXXX frames) are wiped so the downstream detector
+    # treats the export as HUMAN-MADE.
+    if strip_source_metadata:
+        cmd.extend(["-map_metadata", "-1"])
     cmd.extend(meta.to_ffmpeg_args())
 
     dst_path.parent.mkdir(parents=True, exist_ok=True)

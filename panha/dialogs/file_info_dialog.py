@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
 
 from ..mastering import MasteringSettings
 from ..metadata import Metadata
-from ..templates import TemplateStore
+from ..templates import FactoryPresetReadOnlyError, TemplateStore
 
 RATINGS = ["None", "1", "2", "3", "4", "5"]
 GENRES = [
@@ -348,24 +348,19 @@ class FileInformationDialog(QDialog):
     def _load_templates(self) -> dict[str, dict]:
         return self._templates.load()
 
-    def _save_templates(self, templates: dict[str, dict]) -> None:
-        try:
-            self._templates.save(templates)
-        except OSError as exc:
-            QMessageBox.warning(self, "Templates", f"Failed to save templates: {exc}")
-
     def _refresh_template_list(self) -> None:
         templates = self._load_templates()
         self.cmb_template.blockSignals(True)
         self.cmb_template.clear()
-        if not templates:
-            self.cmb_template.addItem("(no templates)")
-            self.btn_template_delete.setEnabled(False)
-        else:
-            self.cmb_template.addItem("(no templates)")
-            for name in sorted(templates.keys()):
-                self.cmb_template.addItem(name)
-            self.btn_template_delete.setEnabled(True)
+        self.cmb_template.addItem("(no templates)")
+        for name in sorted(templates.keys()):
+            self.cmb_template.addItem(name)
+        # Delete only makes sense once there is at least one *user*
+        # template — factory presets are read-only and can't be removed.
+        has_user_template = any(
+            not self._templates.is_factory(n) for n in templates
+        )
+        self.btn_template_delete.setEnabled(has_user_template)
         self.cmb_template.blockSignals(False)
 
     def _on_template_selected(self, index: int) -> None:
@@ -373,17 +368,38 @@ class FileInformationDialog(QDialog):
             return
         name = self.cmb_template.currentText()
         templates = self._load_templates()
-        if name in templates:
-            self._load_state(FileInformationState.from_dict(templates[name]))
+        if name not in templates:
+            return
+        loaded = FileInformationState.from_dict(templates[name])
+        if self._templates.is_factory(name):
+            # Factory presets only carry mastering values; keep whatever
+            # metadata + tracklist the user has already entered so this
+            # dropdown stays useful inside the metadata editor.
+            current = self.collect_state()
+            self._state = dataclasses.replace(current, mastering=loaded.mastering)
+        else:
+            self._state = loaded
+        # ``collect_state()`` re-uses ``self._state.mastering`` (the
+        # mastering grid lives on the main window, not in this dialog),
+        # so updating ``self._state`` above is what carries the
+        # newly-applied chain back out through the dialog's result.
+        self._load_state(self._state)
+        # Disable Delete whenever the selection is a factory preset.
+        self.btn_template_delete.setEnabled(not self._templates.is_factory(name))
 
     def _on_save_template(self) -> None:
         name, ok = QInputDialog.getText(self, "Save Template", "Template name:")
         if not ok or not name.strip():
             return
         name = name.strip()
-        templates = self._load_templates()
-        templates[name] = self.collect_state().to_dict()
-        self._save_templates(templates)
+        try:
+            self._templates.upsert(name, self.collect_state().to_dict())
+        except FactoryPresetReadOnlyError as exc:
+            QMessageBox.warning(self, "Templates", str(exc))
+            return
+        except OSError as exc:
+            QMessageBox.warning(self, "Templates", f"Failed to save templates: {exc}")
+            return
         self._refresh_template_list()
         idx = self.cmb_template.findText(name)
         if idx >= 0:
@@ -393,8 +409,11 @@ class FileInformationDialog(QDialog):
         name = self.cmb_template.currentText()
         if name in {"", "(no templates)"}:
             return
-        templates = self._load_templates()
-        if name in templates:
-            del templates[name]
-            self._save_templates(templates)
+        if self._templates.is_factory(name):
+            QMessageBox.information(
+                self, "Templates",
+                f"'{name}' is a built-in preset and cannot be removed.",
+            )
+            return
+        if self._templates.delete(name):
             self._refresh_template_list()

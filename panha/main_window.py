@@ -50,7 +50,6 @@ from PyQt6.QtWidgets import (
 from . import __app_name__, __version__
 from .dialogs import (
     AIDetectorDialog,
-    ConfigDialog,
     ExportSettings,
     ExportSettingsDialog,
     FileInformationDialog,
@@ -58,7 +57,7 @@ from .dialogs import (
 from .dialogs.file_info_dialog import FileInformationState
 from .mastering import MasteringSettings
 from .metadata import format_duration
-from .templates import TemplateStore
+from .templates import FactoryPresetReadOnlyError, TemplateStore
 from .widgets import MasteringPanel, SystemStatsWidget, TransportBar, WaveformView
 from .widgets.worker import BatchWorker, build_items, schedule_probe, start_worker
 
@@ -97,7 +96,6 @@ class MainWindow(QMainWindow):
         self._thread: QThread | None = None
         self._templates = TemplateStore()
         self._current_template_name: str = ""
-        self._config_dialog: ConfigDialog | None = None
         self._ai_dialog: AIDetectorDialog | None = None
 
         self._build_ui()
@@ -220,7 +218,7 @@ class MainWindow(QMainWindow):
         self.btn_reset_all = QPushButton("Reset all")
         self.btn_reset_all.clicked.connect(self._on_reset_all)
         self.btn_config = QPushButton("Config")
-        self.btn_config.clicked.connect(self._on_open_config)
+        self.btn_config.clicked.connect(self._on_open_info_dialog)
         self.btn_analyze_ai = QPushButton("\u270D Analyze AI")
         self.btn_analyze_ai.setObjectName("accentButton")
         self.btn_analyze_ai.clicked.connect(self._on_analyze_ai)
@@ -284,16 +282,22 @@ class MainWindow(QMainWindow):
 
     def _update_buttons(self) -> None:
         running = self._worker is not None
-        has_rows = bool(self._rows)
         has_template = self._current_template_name != ""
-        self.btn_update.setEnabled(has_template and not running)
-        self.btn_remove_template.setEnabled(has_template and not running)
+        # Factory presets ship with the app and are read-only — Update
+        # and Remove are greyed out so users can't accidentally try to
+        # overwrite or delete them. They can still Save As under a new
+        # name to "fork" a factory preset into a custom one.
+        is_factory = (
+            has_template and self._templates.is_factory(self._current_template_name)
+        )
+        self.btn_update.setEnabled(has_template and not running and not is_factory)
+        self.btn_remove_template.setEnabled(
+            has_template and not running and not is_factory
+        )
         self.btn_save_as.setEnabled(not running)
         self.btn_reset_all.setEnabled(not running)
         self.btn_config.setEnabled(True)
-        self.btn_analyze_ai.setEnabled(has_rows and not running)
-        if self._config_dialog is not None:
-            self._config_dialog.set_export_running(running)
+        self.btn_analyze_ai.setEnabled(not running)
 
     def _refresh_table(self) -> None:
         self.table.setRowCount(len(self._rows))
@@ -399,7 +403,16 @@ class MainWindow(QMainWindow):
         payload = self._templates.get(name)
         if payload is None:
             return
-        self._apply_state(FileInformationState.from_dict(payload))
+        loaded = FileInformationState.from_dict(payload)
+        if self._templates.is_factory(name):
+            # Factory presets only ship a mastering chain; preserve the
+            # user's currently-entered metadata so picking a different
+            # preset feels like swapping the sound, not the song info.
+            self._apply_state(
+                dataclasses.replace(self._info_state, mastering=loaded.mastering)
+            )
+        else:
+            self._apply_state(loaded)
         self._current_template_name = name
         self._update_buttons()
 
@@ -410,6 +423,9 @@ class MainWindow(QMainWindow):
         name = name.strip()
         try:
             self._templates.upsert(name, self._info_state.to_dict())
+        except FactoryPresetReadOnlyError as exc:
+            QMessageBox.warning(self, "Templates", str(exc))
+            return
         except OSError as exc:
             QMessageBox.warning(self, "Templates", f"Failed to save: {exc}")
             return
@@ -423,6 +439,9 @@ class MainWindow(QMainWindow):
             self._templates.upsert(
                 self._current_template_name, self._info_state.to_dict()
             )
+        except FactoryPresetReadOnlyError as exc:
+            QMessageBox.warning(self, "Templates", str(exc))
+            return
         except OSError as exc:
             QMessageBox.warning(self, "Templates", f"Failed to save: {exc}")
             return
@@ -433,6 +452,15 @@ class MainWindow(QMainWindow):
 
     def _on_template_remove(self) -> None:
         if not self._current_template_name:
+            return
+        if self._templates.is_factory(self._current_template_name):
+            # Belt-and-braces: the button is disabled in this state too,
+            # but if it ever fires we surface a friendly message rather
+            # than silently no-op.
+            QMessageBox.information(
+                self, "Templates",
+                f"'{self._current_template_name}' is a built-in preset and cannot be removed.",
+            )
             return
         reply = QMessageBox.question(
             self, "Delete Template",
@@ -454,21 +482,6 @@ class MainWindow(QMainWindow):
         self.cmb_template.setCurrentIndex(0)
         self._update_buttons()
 
-    def _on_open_config(self) -> None:
-        if self._config_dialog is None:
-            dlg = ConfigDialog(self)
-            dlg.add_files_requested.connect(self._on_add_files)
-            dlg.add_folder_requested.connect(self._on_add_folder)
-            dlg.output_folder_requested.connect(self._on_pick_output)
-            dlg.file_information_requested.connect(self._on_open_info_dialog)
-            dlg.export_settings_requested.connect(self._on_open_export_dialog)
-            dlg.start_export_requested.connect(self._on_start_export)
-            dlg.stop_export_requested.connect(self._on_stop_export)
-            self._config_dialog = dlg
-        self._config_dialog.set_export_running(self._worker is not None)
-        self._config_dialog.show()
-        self._config_dialog.raise_()
-        self._config_dialog.activateWindow()
 
     def _on_analyze_ai(self) -> None:
         if self._ai_dialog is None:
@@ -711,6 +724,4 @@ class MainWindow(QMainWindow):
         self.system_stats.stop()
         if self._ai_dialog is not None:
             self._ai_dialog.close()
-        if self._config_dialog is not None:
-            self._config_dialog.close()
         super().closeEvent(event)

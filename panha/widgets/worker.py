@@ -33,6 +33,7 @@ class BatchItem:
     codec_args_override: list[str] | None = None
     force_re_encode: bool = False
     cover_max_size: tuple[int, int] | None = None
+    strip_source_metadata: bool = False
 
 
 class BatchWorker(QObject):
@@ -109,6 +110,7 @@ class BatchWorker(QObject):
                 codec_args_override=item.codec_args_override,
                 force_re_encode=item.force_re_encode,
                 cover_max_size=item.cover_max_size,
+                strip_source_metadata=item.strip_source_metadata,
             )
             self.item_done.emit(idx, "Done")
         except MetadataWriteCancelledError:
@@ -148,6 +150,10 @@ def build_items(
     codec_args_override = (
         export.codec_args_override() if export is not None else None
     )
+    # SUNO Bypass strips every existing tag from the source before the
+    # writer applies the user's overrides, removing the AI fingerprint
+    # the detector keys off of.
+    strip_source_metadata = bool(export.suno_bypass) if export is not None else False
     # Cover-art resize honours the (width, height) configured in the
     # File Information dialog. Zero / negative values disable resizing.
     cover_w = state.tracklist.cover_size

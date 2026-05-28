@@ -1,0 +1,24 @@
+{
+  "templates": {},
+  "last_template": "",
+  "last_state": {
+    "enable": true,
+    "artist": "",
+    "album": "",
+    "year": "2026",
+    "genre": "",
+    "rating": "None",
+    "rating_min": 3,
+    "rating_max": 5,
+    "cover_path": "",
+    "engineer": "",
+    "copyright": "",
+    "software": "",
+    "source": "",
+    "comment": "",
+    "upper": false,
+    "remove_track_number": true,
+    "cover_w": 1600,
+    "cover_h": 1600
+  }
+}
