@@ -104,6 +104,14 @@ class MainWindow(QMainWindow):
         self._ai_dialog: AIDetectorDialog | None = None
 
         self._build_ui()
+        # Restore mastering panel + transport bypass from persisted state.
+        # _build_ui() initialises every widget to its constructor default
+        # (all sliders at 0), so we must sync them to the loaded state here
+        # before the window becomes visible.
+        self.mastering_panel.blockSignals(True)
+        self.mastering_panel.set_settings(self._info_state.mastering)
+        self.mastering_panel.blockSignals(False)
+        self.transport.set_bypass(self._info_state.mastering.bypass)
         self._refresh_template_combo()
         self._update_buttons()
 

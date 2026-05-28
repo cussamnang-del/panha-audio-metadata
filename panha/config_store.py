@@ -143,6 +143,13 @@ def state_from_flat(raw: dict[str, Any]) -> Any:
         cover_height=int(raw.get("cover_h", 1600)),
     )
     mastering_raw = raw.get("mastering") or {}
+    if mastering_raw:
+        # Guard against hand-edited JSON containing unknown keys: only pass
+        # field names that MasteringSettings actually declares so we never
+        # raise TypeError and silently discard the user's entire state.
+        import dataclasses as _dc
+        _valid = {f.name for f in _dc.fields(MasteringSettings)}
+        mastering_raw = {k: v for k, v in mastering_raw.items() if k in _valid}
     mastering = MasteringSettings(**mastering_raw) if mastering_raw else MasteringSettings()
     return FileInformationState(
         enabled=bool(raw.get("enable", True)),
