@@ -288,7 +288,14 @@ def write_metadata(
             "-metadata:s:v", "comment=Cover (front)",
         ])
 
-    cmd.extend(["-id3v2_version", "3"])
+    # -id3v2_version is a private option of the MP3 muxer; applying it to
+    # WAV / FLAC / OGG / M4A containers produces "Option id3v2_version
+    # not found" warnings in some FFmpeg builds and may return EINVAL on
+    # others.  Only emit it when the output is an ID3v2-native format.
+    _ID3V2_SUFFIXES = {".mp3", ".mp2", ".mp1"}
+    if dst_path.suffix.lower() in _ID3V2_SUFFIXES:
+        cmd.extend(["-id3v2_version", "3"])
+
     # Drop every existing tag from the source before applying the
     # user-supplied overrides. This is what powers the "SUNO Bypass"
     # checkbox: AI-platform fingerprints (Suno URLs in comment, encoder
@@ -367,9 +374,38 @@ def _run_ffmpeg(
         raise
 
     if proc.returncode != 0:
+        err_text = (stderr or "").strip() or (stdout or "").strip()
+        # If FFmpeg produced no diagnostic output (can happen when
+        # -loglevel error suppresses the reason), re-run the same command
+        # at warning level against a null output to capture the message.
+        if not err_text:
+            try:
+                diag_cmd = [cmd[0], "-hide_banner"]
+                # Find and replace the loglevel to "warning"
+                for i, tok in enumerate(cmd):
+                    if tok in ("-loglevel", "-v") and i + 1 < len(cmd):
+                        diag_cmd += cmd[1:i] + [tok, "warning"] + cmd[i + 2:]
+                        break
+                else:
+                    diag_cmd = [cmd[0], "-hide_banner", "-loglevel", "warning"] + cmd[1:]
+                # Pipe to null to avoid actually writing data
+                diag_cmd[-1] = os.devnull
+                diag = subprocess.run(
+                    diag_cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=10,
+                )
+                err_text = (diag.stderr or "").strip() or (diag.stdout or "").strip()
+            except Exception:
+                pass
+        cmd_preview = " ".join(cmd[:8]) + " …"  # first 8 tokens for context
         raise MetadataWriteError(
-            f"ffmpeg failed (rc={proc.returncode}) for {src_path}: "
-            f"{(stderr or '').strip() or (stdout or '').strip()}"
+            f"ffmpeg failed (rc={proc.returncode}) for {src_path}:\n"
+            f"{err_text or '(no diagnostic output)'}\n"
+            f"Command: {cmd_preview}"
         )
 
 

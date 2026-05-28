@@ -265,6 +265,8 @@ class MainWindow(QMainWindow):
         self.table.currentCellChanged.connect(self._on_current_row_changed)
         # Update Select All / Remove / Export toolbar buttons when selection changes.
         self.table.itemSelectionChanged.connect(self._update_buttons)
+        # Double-click on an error row opens a dialog with the full error.
+        self.table.cellDoubleClicked.connect(self._on_row_double_clicked)
         queue_layout.addWidget(self.table, 1)
 
         self.progress = QProgressBar()
@@ -784,11 +786,27 @@ class MainWindow(QMainWindow):
         self._update_row_status(idx, status)
 
     def _on_item_failed(self, idx: int, message: str) -> None:
-        # Truncate the inline status so it fits the column, but keep the
-        # full ffmpeg error on the cell tooltip so users can diagnose.
-        truncated = message if len(message) <= 60 else f"{message[:60]}\u2026"
+        # Show a short label in the cell; keep the full error in the
+        # tooltip AND in _rows[idx].status so double-click can show it.
+        first_line = message.split("\n")[0]
+        truncated = first_line if len(first_line) <= 60 else f"{first_line[:60]}\u2026"
         self._update_row_status(
-            idx, f"Error: {truncated}", tooltip=message
+            idx, f"Error: {truncated}", tooltip=f"{message}\n\n(double-click row for details)"
+        )
+
+    def _on_row_double_clicked(self, row: int, _col: int) -> None:
+        """Show the full error message when the user double-clicks an error row."""
+        if not (0 <= row < len(self._rows)):
+            return
+        status = self._rows[row].status
+        if not status.startswith("Error"):
+            return
+        item = self.table.item(row, 3)
+        full_msg = item.toolTip().replace("\n\n(double-click row for details)", "") if item else status
+        QMessageBox.critical(
+            self,
+            "Export Error — Full Details",
+            f"File: {self._rows[row].path}\n\n{full_msg}",
         )
 
     def _on_worker_finished(self) -> None:
