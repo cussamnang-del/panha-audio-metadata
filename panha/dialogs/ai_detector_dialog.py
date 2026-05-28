@@ -45,9 +45,28 @@ from ..detector import (
     schedule_detection,
 )
 
+# Try to import the audio analysis module to show correct library status.
+try:
+    import av as _av  # noqa: F401
+    import numpy as _np  # noqa: F401
+    import scipy as _scipy  # noqa: F401
+    _AUDIO_LIBS_OK = True
+except ImportError:
+    _AUDIO_LIBS_OK = False
+
 SUPPORTED_EXTS = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac"}
 _PLACEHOLDER = "\u2014"  # em dash
 _ANALYZING = "Analyzing\u2026"
+_ANALYZING_DEEP = "Deep scan\u2026"
+
+
+def _get_version(pkg: str) -> str:
+    """Return the installed version string for *pkg*, or '?' if unavailable."""
+    try:
+        import importlib.metadata as _meta  # noqa: PLC0415
+        return _meta.version(pkg)
+    except Exception:  # noqa: BLE001
+        return "?"
 
 _COLOR_AI = QColor("#ff5252")        # red — matches reference screenshot
 _COLOR_HUMAN = QColor("#5fa8ff")     # accent blue — matches HUMAN-MADE screenshot
@@ -112,12 +131,14 @@ class AIDetectorDialog(QDialog):
         self.setWindowTitle("AI Music Detector")
         self.setModal(False)
         self.setAcceptDrops(True)
-        self.resize(720, 460)
+        self.resize(760, 500)
 
         self._rows: list[DetectorRow] = []
         # Allow tests to inject a synchronous detection scheduler so they
         # don't have to spin up a real QThreadPool.
         self._schedule_fn = schedule_fn or schedule_detection
+        # Deep scan flag — toggled by the UI checkbox.
+        self._deep_scan: bool = False
         self._build_ui()
         self._refresh_table()
 
@@ -163,9 +184,38 @@ class AIDetectorDialog(QDialog):
         self.btn_clear.setObjectName("aiDetectorSecondary")
         self.btn_clear.setMinimumWidth(96)
         self.btn_clear.clicked.connect(self._on_clear)
+        self.btn_reanalyze = QPushButton("\u21BB Re-analyze")
+        self.btn_reanalyze.setObjectName("aiDetectorSecondary")
+        self.btn_reanalyze.setToolTip("Re-run detection on all queued files with current settings")
+        self.btn_reanalyze.clicked.connect(self._on_reanalyze)
         actions.addWidget(self.btn_add)
         actions.addWidget(self.btn_clear)
+        actions.addWidget(self.btn_reanalyze)
         actions.addStretch(1)
+
+        # -- Deep Audio Scan toggle ------------------------------------
+        from PyQt6.QtWidgets import QCheckBox  # noqa: PLC0415 (local to keep imports tidy)
+        self.chk_deep_scan = QCheckBox("Deep Audio Scan")
+        _tip = (
+            "Decode and analyse the audio signal using PyAV + NumPy + SciPy "
+            "(av {av}, numpy {np}, scipy {sc}).\n"
+            "Detects AI audio even after metadata fingerprints have been stripped "
+            "by SUNO Bypass export.\nSlower (~1-5 s per file)."
+        ).format(
+            av=_get_version("av"),
+            np=_get_version("numpy"),
+            sc=_get_version("scipy"),
+        )
+        self.chk_deep_scan.setToolTip(_tip)
+        self.chk_deep_scan.setChecked(False)
+        if not _AUDIO_LIBS_OK:
+            self.chk_deep_scan.setEnabled(False)
+            self.chk_deep_scan.setToolTip(
+                "Deep Audio Scan requires: av, numpy, scipy (not installed)"
+            )
+        self.chk_deep_scan.toggled.connect(self._on_deep_scan_toggled)
+        actions.addWidget(self.chk_deep_scan)
+
         root.addLayout(actions)
 
         self.table_divider = self._build_divider()
@@ -229,7 +279,11 @@ class AIDetectorDialog(QDialog):
         if added:
             self._refresh_table()
             for path in added:
-                self._schedule_fn(path, self._on_detection_finished)
+                self._schedule_fn(
+                    path,
+                    self._on_detection_finished,
+                    deep_scan=self._deep_scan,
+                )
         return len(added)
 
     def set_row_result(
@@ -310,6 +364,30 @@ class AIDetectorDialog(QDialog):
 
     # -- slots ---------------------------------------------------------
 
+    def _on_deep_scan_toggled(self, enabled: bool) -> None:
+        """Toggle deep audio scan mode."""
+        self._deep_scan = bool(enabled)
+
+    def _on_reanalyze(self) -> None:
+        """Re-run detection on every row with the current deep_scan setting."""
+        if not self._rows:
+            return
+        # Reset all rows to "Analyzing" state then reschedule.
+        for row in self._rows:
+            row.analyzing = True
+            row.platform = _PLACEHOLDER
+            row.confidence = _PLACEHOLDER
+            row.verdict = _PLACEHOLDER
+            row.is_ai = False
+            row.tooltip = ""
+        self._refresh_table()
+        for row in self._rows:
+            self._schedule_fn(
+                row.path,
+                self._on_detection_finished,
+                deep_scan=self._deep_scan,
+            )
+
     def _on_add_files(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(
             self,
@@ -386,12 +464,18 @@ class AIDetectorDialog(QDialog):
         self.table.setItem(row_idx, 3, verdict_item)
 
     def _render_analyzing_cell(self, row_idx: int, col: int) -> None:
-        item = QTableWidgetItem(_ANALYZING)
+        label = _ANALYZING_DEEP if self._deep_scan else _ANALYZING
+        tip = (
+            "Decoding audio signal + scanning metadata for AI fingerprints\u2026"
+            if self._deep_scan
+            else "Analyzing audio metadata for AI fingerprints\u2026"
+        )
+        item = QTableWidgetItem(label)
         item.setForeground(QBrush(_COLOR_ANALYZING))
         font = item.font()
         font.setItalic(True)
         item.setFont(font)
-        item.setToolTip("Analyzing audio metadata for AI fingerprints\u2026")
+        item.setToolTip(tip)
         self.table.setItem(row_idx, col, item)
 
     @staticmethod

@@ -357,6 +357,7 @@ def detect_ai_audio(
     path: str | os.PathLike[str],
     *,
     read_metadata_fn: Callable[..., dict[str, str]] = read_metadata,
+    deep_scan: bool = False,
 ) -> DetectorResult:
     """Classify ``path`` as AI-generated, human, or unknown.
 
@@ -366,6 +367,11 @@ def detect_ai_audio(
         Audio file to analyse.
     read_metadata_fn:
         Override hook for tests; defaults to :func:`panha.metadata.read_metadata`.
+    deep_scan:
+        When ``True`` also runs :func:`~panha.audio_analysis.extract_audio_features`
+        (PyAV + NumPy + SciPy) to decode and analyse the audio signal.
+        This is slower (1-5 s per file) but can detect AI audio even after
+        metadata fingerprints have been stripped by the SUNO Bypass export.
 
     The function never raises: I/O / ffprobe failures collapse into a
     :data:`VERDICT_UNKNOWN` result with the error captured in
@@ -391,7 +397,87 @@ def detect_ai_audio(
     # Lower-case the keys so callers don't have to worry about ffprobe's
     # mixed casing on different platforms.
     tags = {str(k).lower(): str(v) for k, v in tags.items()}
-    return _classify(tags, p.name)
+    meta_result = _classify(tags, p.name)
+
+    if not deep_scan:
+        return meta_result
+
+    # ------------------------------------------------------------------
+    # Deep audio scan (PyAV + NumPy + SciPy)
+    # ------------------------------------------------------------------
+    return _merge_with_audio_scan(meta_result, p)
+
+
+def _merge_with_audio_scan(
+    meta_result: DetectorResult,
+    p: Path,
+) -> DetectorResult:
+    """Run audio feature extraction and merge with *meta_result*.
+
+    The final verdict is the stronger of the two signals:
+    * If metadata already gives high confidence, it wins.
+    * Otherwise, the audio score can upgrade or downgrade the verdict.
+    """
+    from .audio_analysis import extract_audio_features, score_audio_features  # noqa: PLC0415
+
+    features = extract_audio_features(p)
+    audio_score, audio_reason = score_audio_features(features)
+
+    # If audio scan couldn't run, return metadata result unchanged.
+    if audio_score < 0:
+        combined_reason = f"{meta_result.reason} | {audio_reason}"
+        return DetectorResult(
+            platform=meta_result.platform,
+            platform_score=meta_result.platform_score,
+            confidence=meta_result.confidence,
+            verdict=meta_result.verdict,
+            is_ai=meta_result.is_ai,
+            reason=combined_reason,
+        )
+
+    # Weighted merge: metadata score (weight 0.6) + audio score (weight 0.4).
+    # Metadata heuristics are highly precise when markers are present;
+    # audio features provide signal when metadata has been stripped.
+    meta_confidence = meta_result.confidence
+    if meta_result.verdict == VERDICT_AI:
+        meta_ai_score = meta_confidence
+    elif meta_result.verdict == VERDICT_HUMAN:
+        meta_ai_score = 100 - meta_confidence
+    else:
+        meta_ai_score = 40  # neutral when unknown
+
+    blended = int(meta_ai_score * 0.55 + audio_score * 0.45)
+    blended = max(0, min(100, blended))
+
+    if blended >= 65:
+        verdict = VERDICT_AI
+        is_ai = True
+        # Inherit platform from metadata if it found one; else "AI (audio)"
+        platform = meta_result.platform if meta_result.platform != "\u2014" else "AI (audio)"
+        platform_score = blended
+        confidence = min(99, blended + 5)
+    elif blended <= 35:
+        verdict = VERDICT_HUMAN
+        is_ai = False
+        platform = "\u2014"
+        platform_score = 0
+        confidence = min(99, 100 - blended + 5)
+    else:
+        verdict = VERDICT_UNKNOWN
+        is_ai = False
+        platform = meta_result.platform
+        platform_score = meta_result.platform_score
+        confidence = 50
+
+    combined_reason = f"{meta_result.reason} | {audio_reason}"
+    return DetectorResult(
+        platform=platform,
+        platform_score=platform_score,
+        confidence=confidence,
+        verdict=verdict,
+        is_ai=is_ai,
+        reason=combined_reason,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -410,17 +496,36 @@ class DetectorTask(QRunnable):
 
     Use :attr:`signals.finished` to receive the result back on the
     Qt thread that connected the slot.
+
+    Parameters
+    ----------
+    path:
+        Audio file path to analyse.
+    detect_fn:
+        Callable that performs detection; defaults to
+        :func:`detect_ai_audio`.  Override for tests.
+    deep_scan:
+        Passed through to :func:`detect_ai_audio` to enable the
+        PyAV + NumPy + SciPy audio signal analysis layer.
     """
 
     def __init__(
         self,
         path: str,
         *,
-        detect_fn: Callable[[str], DetectorResult] = detect_ai_audio,
+        detect_fn: Callable[[str], DetectorResult] | None = None,
+        deep_scan: bool = False,
     ) -> None:
         super().__init__()
         self._path = path
-        self._detect_fn = detect_fn
+        self._deep_scan = deep_scan
+        # Allow tests to inject a stub; otherwise wrap detect_ai_audio so
+        # the deep_scan flag is passed through.
+        if detect_fn is not None:
+            self._detect_fn: Callable[[str], DetectorResult] = detect_fn
+        else:
+            _ds = deep_scan
+            self._detect_fn = lambda p: detect_ai_audio(p, deep_scan=_ds)
         self.signals = _DetectorSignals()
         self.setAutoDelete(True)
 
@@ -440,10 +545,18 @@ def schedule_detection(
     on_finished: Callable[[str, DetectorResult], None],
     *,
     pool: QThreadPool | None = None,
-    detect_fn: Callable[[str], DetectorResult] = detect_ai_audio,
+    detect_fn: Callable[[str], DetectorResult] | None = None,
+    deep_scan: bool = False,
 ) -> DetectorTask:
-    """Submit ``path`` to a background pool; ``on_finished`` runs on the caller's thread."""
-    task = DetectorTask(path, detect_fn=detect_fn)
+    """Submit ``path`` to a background pool; ``on_finished`` runs on the caller's thread.
+
+    Parameters
+    ----------
+    deep_scan:
+        Enable the PyAV + NumPy + SciPy audio analysis layer. Slower
+        (1-5 s per file) but can detect AI audio after metadata stripping.
+    """
+    task = DetectorTask(path, detect_fn=detect_fn, deep_scan=deep_scan)
     task.signals.finished.connect(on_finished)
     (pool or QThreadPool.globalInstance()).start(task)
     return task

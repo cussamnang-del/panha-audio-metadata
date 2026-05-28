@@ -249,7 +249,7 @@ def test_dialog_drag_drop_schedules_detection(qapp, tmp_path: Path):
 
     scheduled: list[str] = []
 
-    def fake_schedule(path, _on_finished):
+    def fake_schedule(path, _on_finished, **_kwargs):
         scheduled.append(path)
 
     dlg = AIDetectorDialog(schedule_fn=fake_schedule)
