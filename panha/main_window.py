@@ -178,6 +178,70 @@ class MainWindow(QMainWindow):
 
     def _build_queue_section(self) -> QWidget:
         queue_frame, queue_layout = self._section_frame("Batch Queue")
+
+        # -- Queue toolbar (always visible, no right-click needed) -----
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(6)
+
+        self.btn_add_files = QPushButton("+ Files")
+        self.btn_add_files.setToolTip("Add audio files to the queue")
+        self.btn_add_files.clicked.connect(self._on_add_files)
+
+        self.btn_add_folder = QPushButton("+ Folder")
+        self.btn_add_folder.setToolTip("Add an entire folder of audio files")
+        self.btn_add_folder.clicked.connect(self._on_add_folder)
+
+        self.btn_select_all = QPushButton("Select All")
+        self.btn_select_all.setToolTip("Select all audio files in the queue")
+        self.btn_select_all.clicked.connect(lambda: self.table.selectAll())
+
+        self.btn_remove = QPushButton("Remove")
+        self.btn_remove.setToolTip("Remove selected rows from the queue")
+        self.btn_remove.clicked.connect(self._on_remove_selected)
+
+        self.btn_clear = QPushButton("Clear")
+        self.btn_clear.setToolTip("Clear all rows from the queue")
+        self.btn_clear.clicked.connect(self._on_clear)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setStyleSheet("color:#1c3050;max-width:1px;")
+
+        self.btn_start_export = QPushButton("\u25B6  Export")
+        self.btn_start_export.setObjectName("primaryButton")
+        self.btn_start_export.setToolTip("Start batch export")
+        self.btn_start_export.clicked.connect(self._on_start_export)
+
+        self.btn_stop_export = QPushButton("\u25A0  Stop")
+        self.btn_stop_export.setToolTip("Cancel the running export")
+        self.btn_stop_export.clicked.connect(self._on_stop_export)
+
+        self.btn_open_output = QPushButton("\U0001F4C2  Output")
+        self.btn_open_output.setToolTip("Open the output folder in Explorer")
+        self.btn_open_output.clicked.connect(self._on_open_output)
+
+        for btn in (
+            self.btn_add_files,
+            self.btn_add_folder,
+            self.btn_select_all,
+            self.btn_remove,
+            self.btn_clear,
+        ):
+            toolbar.addWidget(btn)
+
+        toolbar.addWidget(sep)
+        toolbar.addStretch(1)
+
+        for btn in (
+            self.btn_start_export,
+            self.btn_stop_export,
+            self.btn_open_output,
+        ):
+            toolbar.addWidget(btn)
+
+        queue_layout.addLayout(toolbar)
+
+        # -- Table -------------------------------------------------------
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(
             ["Filename", "Duration", "Type", "Status"]
@@ -199,6 +263,8 @@ class MainWindow(QMainWindow):
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
         self.table.currentCellChanged.connect(self._on_current_row_changed)
+        # Update Select All / Remove / Export toolbar buttons when selection changes.
+        self.table.itemSelectionChanged.connect(self._update_buttons)
         queue_layout.addWidget(self.table, 1)
 
         self.progress = QProgressBar()
@@ -303,6 +369,8 @@ class MainWindow(QMainWindow):
 
     def _update_buttons(self) -> None:
         running = self._worker is not None
+        has_rows = len(self._rows) > 0
+        has_selection = bool(self.table.selectedIndexes())
         has_template = self._current_template_name != ""
         # Factory presets ship with the app and are read-only — Update
         # and Remove are greyed out so users can't accidentally try to
@@ -311,6 +379,18 @@ class MainWindow(QMainWindow):
         is_factory = (
             has_template and self._templates.is_factory(self._current_template_name)
         )
+
+        # -- Queue toolbar buttons ------------------------------------
+        self.btn_add_files.setEnabled(not running)
+        self.btn_add_folder.setEnabled(not running)
+        self.btn_select_all.setEnabled(has_rows and not running)
+        self.btn_remove.setEnabled(has_selection and not running)
+        self.btn_clear.setEnabled(has_rows and not running)
+        self.btn_start_export.setEnabled(has_rows and not running)
+        self.btn_stop_export.setEnabled(running)
+        self.btn_open_output.setEnabled(True)
+
+        # -- Setting Console buttons ----------------------------------
         self.btn_update.setEnabled(has_template and not running and not is_factory)
         self.btn_remove_template.setEnabled(
             has_template and not running and not is_factory
