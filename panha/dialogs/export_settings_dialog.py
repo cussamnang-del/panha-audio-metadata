@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QFileDialog,
     QFormLayout,
     QFrame,
+    QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -126,6 +130,24 @@ class ExportSettingsDialog(QDialog):
         line.setStyleSheet("color:#1c3050;background:#1c3050;max-height:1px;")
         root.addWidget(line)
 
+        # -- Export Location -------------------------------------------
+        self._add_section_header(root, "Export Location")
+        loc_row = QHBoxLayout()
+        loc_row.setSpacing(6)
+        self.ed_output_dir = QLineEdit()
+        self.ed_output_dir.setPlaceholderText("Choose output folder…")
+        self.ed_output_dir.setReadOnly(True)
+        self.ed_output_dir.setToolTip("Folder where exported files will be saved")
+        self.btn_browse = QPushButton("Browse…")
+        self.btn_browse.setFixedWidth(76)
+        self.btn_browse.setToolTip("Browse for export output folder")
+        self.btn_browse.clicked.connect(self._on_browse_output)
+        loc_row.addWidget(self.ed_output_dir, 1)
+        loc_row.addWidget(self.btn_browse)
+        root.addLayout(loc_row)
+
+        # -- Format / quality ------------------------------------------
+        self._add_section_header(root, "Format & Quality")
         form = QFormLayout()
         form.setHorizontalSpacing(12)
         form.setVerticalSpacing(8)
@@ -169,7 +191,7 @@ class ExportSettingsDialog(QDialog):
 
         self.btn_start = QPushButton("\u25B6  Start Export")
         self.btn_start.setObjectName("primaryButton")
-        self.btn_start.clicked.connect(self.accept)
+        self.btn_start.clicked.connect(self._on_start_clicked)
         root.addWidget(self.btn_start)
 
         self.btn_cancel = QPushButton("Cancel")
@@ -189,6 +211,7 @@ class ExportSettingsDialog(QDialog):
         layout.addWidget(rule)
 
     def _load(self, s: ExportSettings) -> None:
+        self.ed_output_dir.setText(s.output_dir or "")
         for combo, value in (
             (self.cmb_format, s.format),
             (self.cmb_sample, s.sample_rate),
@@ -203,10 +226,36 @@ class ExportSettingsDialog(QDialog):
         self.chk_vocal.setChecked(s.vocal_clarity)
         self.chk_softclip.setChecked(s.soft_clip)
         self._on_format_changed(self.cmb_format.currentText())
+        self._update_start_button()
+
+    def _on_browse_output(self) -> None:
+        """Open a folder-picker and update the Export Location field."""
+        current = self.ed_output_dir.text().strip() or str(Path.home())
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select Export Location", current
+        )
+        if folder:
+            self.ed_output_dir.setText(folder)
+            self._update_start_button()
 
     def _on_format_changed(self, fmt: str) -> None:
         """Bit depth is meaningful only for WAV; gray it out otherwise."""
         self.cmb_bitdepth.setEnabled(fmt.upper() == "WAV")
+
+    def _update_start_button(self) -> None:
+        """Disable Start Export until an output location is chosen."""
+        self.btn_start.setEnabled(bool(self.ed_output_dir.text().strip()))
+
+    def _on_start_clicked(self) -> None:
+        """Validate output location before accepting the dialog."""
+        if not self.ed_output_dir.text().strip():
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self, "Export Location Required",
+                "Please choose an output folder before starting the export.",
+            )
+            return
+        self.accept()
 
     def collect(self) -> ExportSettings:
         return ExportSettings(
@@ -218,5 +267,5 @@ class ExportSettingsDialog(QDialog):
             vocal_clarity=self.chk_vocal.isChecked(),
             soft_clip=self.chk_softclip.isChecked(),
             lufs_target=self.cmb_lufs.currentText(),
-            output_dir=self._settings.output_dir,
+            output_dir=self.ed_output_dir.text().strip(),
         )

@@ -730,6 +730,16 @@ class MainWindow(QMainWindow):
                 self, "Nothing to export", "Add some files first."
             )
             return
+
+        # Always show the Export Settings dialog so the user can confirm
+        # the output location and processing options before committing.
+        # Pre-populate with the last-used settings (including output_dir).
+        dlg = ExportSettingsDialog(self._export_settings, parent=self)
+        if dlg.exec() != ExportSettingsDialog.DialogCode.Accepted:
+            return
+        self._export_settings = dlg.collect()
+        self._output_dir = self._export_settings.output_dir
+
         if not self._info_state.enabled:
             reply = QMessageBox.question(
                 self,
@@ -793,24 +803,45 @@ class MainWindow(QMainWindow):
     # -- context menu --------------------------------------------------
 
     def _on_context_menu(self, pos) -> None:
+        running = self._worker is not None
+        has_rows = len(self._rows) > 0
+        has_sel = bool(self.table.selectedIndexes())
+
         menu = QMenu(self)
-        act_select_all = QAction("Select all", self)
+
+        act_select_all = QAction("Select All Audio", self)
+        act_select_all.setEnabled(has_rows and not running)
         act_select_all.triggered.connect(self.table.selectAll)
-        act_add_files = QAction("Add files", self)
+
+        act_add_files = QAction("Add Files…", self)
+        act_add_files.setEnabled(not running)
         act_add_files.triggered.connect(self._on_add_files)
-        act_add_folder = QAction("Add folder", self)
+
+        act_add_folder = QAction("Add Folder…", self)
+        act_add_folder.setEnabled(not running)
         act_add_folder.triggered.connect(self._on_add_folder)
-        act_remove = QAction("Remove selected", self)
+
+        act_remove = QAction("Remove Selected", self)
+        act_remove.setEnabled(has_sel and not running)
         act_remove.triggered.connect(self._on_remove_selected)
-        act_clear = QAction("Clear all", self)
+
+        act_clear = QAction("Clear All", self)
+        act_clear.setEnabled(has_rows and not running)
         act_clear.triggered.connect(self._on_clear)
-        act_start = QAction("\u25B6  START EXPORT", self)
+
+        act_start = QAction("\u25B6  Start Export…", self)
+        act_start.setEnabled(has_rows and not running)
         act_start.triggered.connect(self._on_start_export)
-        act_stop = QAction("\u25A0  STOP EXPORT", self)
+
+        act_stop = QAction("\u25A0  Stop Export", self)
+        act_stop.setEnabled(running)
         act_stop.triggered.connect(self._on_stop_export)
-        act_open = QAction("Open output", self)
+
+        act_open = QAction("\U0001F4C2  Open Output Folder", self)
         act_open.triggered.connect(self._on_open_output)
+
         menu.addAction(act_select_all)
+        menu.addSeparator()
         menu.addAction(act_add_files)
         menu.addAction(act_add_folder)
         menu.addSeparator()
