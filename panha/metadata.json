@@ -1,10 +1,10 @@
 {
   "templates": {},
-  "last_template": "",
+  "last_template": "Pro Clear & Heavy",
   "last_state": {
     "enable": true,
-    "artist": "",
-    "album": "",
+    "artist": "Panha",
+    "album": "Live",
     "year": "2026",
     "genre": "",
     "rating": "None",
@@ -19,6 +19,22 @@
     "upper": false,
     "remove_track_number": true,
     "cover_w": 1600,
-    "cover_h": 1600
+    "cover_h": 1600,
+    "mastering": {
+      "bypass": false,
+      "bass": 41,
+      "deep": 16,
+      "mid": 0,
+      "clear": 41,
+      "treble": 25,
+      "pres": 33,
+      "comp": 62,
+      "limit": 94,
+      "sat": 16,
+      "verb": 6,
+      "echo": 0,
+      "width": 14,
+      "gain": 8
+    }
   }
 }

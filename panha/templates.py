@@ -1,8 +1,9 @@
 """Persistence for batch templates.
 
-User templates are stored as a JSON object keyed by name in
-``~/.panha_templates.json``. The value for each name is the serialised
-:class:`~panha.dialogs.file_info_dialog.FileInformationState`.
+User templates are stored in the ``templates`` key of
+``panha/metadata.json`` (the same file that holds ``last_state`` and
+``last_template``).  The :class:`ConfigStore` handles document-level
+read/write so unrelated keys are never clobbered.
 
 Factory presets (bundled in :mod:`panha.presets` from
 ``panha/presets.json``) are *merged* into the same store at read time
@@ -17,25 +18,15 @@ read-only:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
+from .config_store import CONFIG_PATH, ConfigStore
 from .presets import is_factory_preset, load_factory_presets
-
-DEFAULT_TEMPLATES_FILENAME = ".panha_templates.json"
-
-
-def default_templates_path() -> Path:
-    """Resolve the default templates JSON path lazily.
-
-    Computed on each call (rather than at import time) so tests can
-    monkeypatch :meth:`pathlib.Path.home` before constructing a store.
-    """
-    return Path.home() / DEFAULT_TEMPLATES_FILENAME
 
 
 class TemplateStore:
-    """Thin read/write wrapper around the templates JSON file."""
+    """Thin read/write wrapper around the ``templates`` section of
+    ``panha/metadata.json``."""
 
     def __init__(
         self,
@@ -43,10 +34,14 @@ class TemplateStore:
         *,
         include_factory: bool = True,
     ) -> None:
-        self.path = Path(path) if path is not None else default_templates_path()
+        self._store = ConfigStore(path if path is not None else CONFIG_PATH)
         # Switchable so tests / advanced callers can opt out of the
         # bundled presets without monkey-patching the loader.
         self._include_factory = include_factory
+
+    @property
+    def path(self) -> Path:
+        return self._store.path
 
     def load(self) -> dict[str, dict]:
         """Return ``{name: payload}`` for every template visible in the UI.
@@ -65,13 +60,7 @@ class TemplateStore:
         return merged
 
     def _load_user(self) -> dict[str, dict]:
-        if not self.path.exists():
-            return {}
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
-        return data if isinstance(data, dict) else {}
+        return self._store.load_templates()
 
     def save(self, templates: dict[str, dict]) -> None:
         # Never write factory presets to the user file — the bundled
@@ -82,10 +71,7 @@ class TemplateStore:
             for name, payload in templates.items()
             if not is_factory_preset(name)
         }
-        self.path.write_text(
-            json.dumps(user_only, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        self._store.save_templates(user_only)
 
     def names(self) -> list[str]:
         return sorted(self.load().keys())

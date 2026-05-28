@@ -9,6 +9,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import QObject, QRunnable, QThread, QThreadPool, pyqtSignal
 
+from ..config_store import ConfigStore
 from ..dialogs.export_settings_dialog import ExportSettings
 from ..dialogs.file_info_dialog import FileInformationState
 from ..mastering import MasteringSettings
@@ -132,6 +133,7 @@ def build_items(
     state: FileInformationState,
     *,
     export: ExportSettings | None = None,
+    config_store: ConfigStore | None = None,
 ) -> list[BatchItem]:
     """Combine a source list + UI state into a list of BatchItem.
 
@@ -139,11 +141,35 @@ def build_items(
     suffix, codec overrides, sample-rate, and LUFS target. Items are
     re-encoded automatically when any of these differs from the
     pure-tagging defaults.
+
+    When ``export.suno_bypass`` is True the metadata source is loaded
+    fresh from ``panha/metadata.json`` (via ``config_store``) so the
+    JSON file is the single authoritative source of truth for what gets
+    embedded in every output file.  The existing source-file tags are
+    stripped as usual.
     """
     items: list[BatchItem] = []
     out_root = Path(output_dir).expanduser().resolve()
-    base = dataclasses.replace(state.metadata)
-    mastering = dataclasses.replace(state.mastering)
+
+    suno_bypass = bool(export.suno_bypass) if export is not None else False
+
+    if suno_bypass:
+        # SUNO Bypass mode: reload metadata + tracklist from
+        # panha/metadata.json so the JSON file is the single source of
+        # truth for what gets embedded into every output file.
+        _store = config_store if config_store is not None else ConfigStore()
+        json_state = _store.load_last_state()
+        base = dataclasses.replace(json_state.metadata)
+        mastering = dataclasses.replace(json_state.mastering)
+        cover_w = json_state.tracklist.cover_size
+        cover_h = json_state.tracklist.cover_height
+        tracklist = json_state.tracklist
+    else:
+        base = dataclasses.replace(state.metadata)
+        mastering = dataclasses.replace(state.mastering)
+        cover_w = state.tracklist.cover_size
+        cover_h = state.tracklist.cover_height
+        tracklist = state.tracklist
 
     sample_rate_hz = export.parsed_sample_rate_hz() if export is not None else None
     lufs_target_lufs = export.parsed_lufs_target() if export is not None else None
@@ -151,13 +177,11 @@ def build_items(
         export.codec_args_override() if export is not None else None
     )
     # SUNO Bypass strips every existing tag from the source before the
-    # writer applies the user's overrides, removing the AI fingerprint
-    # the detector keys off of.
-    strip_source_metadata = bool(export.suno_bypass) if export is not None else False
-    # Cover-art resize honours the (width, height) configured in the
-    # File Information dialog. Zero / negative values disable resizing.
-    cover_w = state.tracklist.cover_size
-    cover_h = state.tracklist.cover_height
+    # writer applies the metadata from panha/metadata.json, removing the
+    # AI-platform fingerprint the detector keys off of.
+    strip_source_metadata = suno_bypass
+    # Cover-art resize honours the (width, height) from the active state.
+    # Zero / negative values disable resizing.
     cover_max_size: tuple[int, int] | None = (
         (cover_w, cover_h) if cover_w > 0 and cover_h > 0 else None
     )
@@ -171,11 +195,11 @@ def build_items(
             else source_suffix
         )
         stem = src_path.stem
-        if state.tracklist.remove_track_number:
+        if tracklist.remove_track_number:
             cleaned = stem.lstrip("0123456789. _-")
             if cleaned:
                 stem = cleaned
-        if state.tracklist.uppercase:
+        if tracklist.uppercase:
             stem = stem.upper()
         target_name = f"{stem}{target_suffix}"
         target = out_root / target_name

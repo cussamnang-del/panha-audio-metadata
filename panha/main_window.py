@@ -50,6 +50,7 @@ from PyQt6.QtWidgets import (
 )
 
 from . import __app_name__, __version__
+from .config_store import ConfigStore
 from .dialogs import (
     AIDetectorDialog,
     ExportSettings,
@@ -90,14 +91,16 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(self._make_icon())
 
         self._rows: list[QueueRow] = []
-        self._info_state = FileInformationState()
+        self._config = ConfigStore()
+        # Restore state from panha/metadata.json on startup.
+        self._info_state: FileInformationState = self._config.load_last_state()
         self._export_settings = ExportSettings()
         self._output_dir: str = str(Path.home() / "PanhaExports")
         self._export_settings.output_dir = self._output_dir
         self._worker: BatchWorker | None = None
         self._thread: QThread | None = None
         self._templates = TemplateStore()
-        self._current_template_name: str = ""
+        self._current_template_name: str = self._config.load_last_template()
         self._ai_dialog: AIDetectorDialog | None = None
 
         self._build_ui()
@@ -282,6 +285,14 @@ class MainWindow(QMainWindow):
     def _year(self) -> int:
         return datetime.now().year
 
+    def _persist_state(self) -> None:
+        """Write the current UI state to ``panha/metadata.json``."""
+        try:
+            self._config.save_last_state(self._info_state)
+            self._config.save_last_template(self._current_template_name)
+        except OSError:
+            pass  # non-fatal — UI keeps working even if the write fails
+
     def _update_buttons(self) -> None:
         running = self._worker is not None
         has_template = self._current_template_name != ""
@@ -393,6 +404,7 @@ class MainWindow(QMainWindow):
         self.mastering_panel.set_settings(state.mastering)
         self.mastering_panel.blockSignals(False)
         self.transport.set_bypass(state.mastering.bypass)
+        self._persist_state()
 
     # -- slots: template row -------------------------------------------
 
@@ -400,6 +412,7 @@ class MainWindow(QMainWindow):
         if index <= 0:
             self._current_template_name = ""
             self._update_buttons()
+            self._persist_state()
             return
         name = self.cmb_template.itemText(index)
         payload = self._templates.get(name)
@@ -417,6 +430,7 @@ class MainWindow(QMainWindow):
             self._apply_state(loaded)
         self._current_template_name = name
         self._update_buttons()
+        self._persist_state()
 
     def _on_template_save_as(self) -> None:
         name, ok = QInputDialog.getText(self, "Save Template", "Template name:")
@@ -479,10 +493,11 @@ class MainWindow(QMainWindow):
         self._refresh_template_combo()
 
     def _on_reset_all(self) -> None:
-        self._apply_state(FileInformationState())
         self._current_template_name = ""
+        self._apply_state(FileInformationState())
         self.cmb_template.setCurrentIndex(0)
         self._update_buttons()
+        self._persist_state()
 
     def _on_open_config(self) -> None:
         # The Setting Console's Config button opens the File Information
@@ -505,10 +520,12 @@ class MainWindow(QMainWindow):
 
     def _on_mastering_changed(self, settings: MasteringSettings) -> None:
         self._info_state.mastering = settings
+        self._persist_state()
 
     def _on_transport_bypass(self, bypass: bool) -> None:
         self._info_state.mastering.bypass = bool(bypass)
         self.mastering_panel.set_bypass(bypass)
+        self._persist_state()
 
     def _on_transport_prev(self) -> None:
         row = self.table.currentRow()

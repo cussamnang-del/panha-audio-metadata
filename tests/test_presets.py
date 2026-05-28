@@ -241,7 +241,12 @@ def test_template_store_delete_refuses_factory_preset(tmp_path: Path):
 
 
 def test_template_store_save_strips_factory_entries(tmp_path: Path):
-    """Calling save() with merged data never persists factory presets."""
+    """Calling save() with merged data never persists factory presets.
+
+    Templates are now stored under the ``templates`` key of the config
+    document (``panha/metadata.json`` schema), so we read that key when
+    checking what ended up on disk.
+    """
     path = tmp_path / "templates.json"
     store = TemplateStore(path)
     # Simulate a caller that round-trips the merged load() back to save()
@@ -249,7 +254,9 @@ def test_template_store_save_strips_factory_entries(tmp_path: Path):
     merged = store.load()
     merged["My Custom"] = {"sentinel": True}
     store.save(merged)
-    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    # User templates live under the 'templates' key in the new schema.
+    on_disk = doc.get("templates", {})
     for factory_name in factory_preset_names():
         assert factory_name not in on_disk
     assert on_disk.get("My Custom") == {"sentinel": True}
