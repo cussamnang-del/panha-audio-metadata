@@ -9,10 +9,12 @@ Layout is modelled on the X-MIXM reference design:
     [ Transport bar (prev/play/next/BYPASS + scrubber) ]
     [ Status bar: license + footer + CPU/RAM ]
 
-Operational actions (Add Files / Add Folder / Output / Start / Stop /
-File Information / Export Settings) live behind the **Config** button in
-the Setting Console and the queue's right-click context menu, so the
-main surface stays focused on mixing.
+Operational actions (Add Files / Add Folder / Remove / Clear / Start /
+Stop / Open output) live on the queue's right-click context menu so the
+main surface stays focused on mixing. The Setting Console's **Config**
+button opens the File Information dialog directly (the metadata that
+will be written on export), and **Analyze AI** opens the dormant AI
+music-detector view seeded with the queue's current files.
 """
 
 from __future__ import annotations
@@ -218,7 +220,7 @@ class MainWindow(QMainWindow):
         self.btn_reset_all = QPushButton("Reset all")
         self.btn_reset_all.clicked.connect(self._on_reset_all)
         self.btn_config = QPushButton("Config")
-        self.btn_config.clicked.connect(self._on_open_info_dialog)
+        self.btn_config.clicked.connect(self._on_open_config)
         self.btn_analyze_ai = QPushButton("\u270D Analyze AI")
         self.btn_analyze_ai.setObjectName("accentButton")
         self.btn_analyze_ai.clicked.connect(self._on_analyze_ai)
@@ -482,6 +484,12 @@ class MainWindow(QMainWindow):
         self.cmb_template.setCurrentIndex(0)
         self._update_buttons()
 
+    def _on_open_config(self) -> None:
+        # The Setting Console's Config button opens the File Information
+        # dialog directly. Batch operations (Add Files / Add Folder /
+        # Output Folder / Export Settings / Start / Stop Export) live on
+        # the queue's right-click context menu instead.
+        self._on_open_info_dialog()
 
     def _on_analyze_ai(self) -> None:
         if self._ai_dialog is None:

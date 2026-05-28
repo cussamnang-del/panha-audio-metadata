@@ -22,7 +22,16 @@ from pathlib import Path
 
 from .presets import is_factory_preset, load_factory_presets
 
-DEFAULT_TEMPLATES_PATH = Path.home() / ".panha_templates.json"
+DEFAULT_TEMPLATES_FILENAME = ".panha_templates.json"
+
+
+def default_templates_path() -> Path:
+    """Resolve the default templates JSON path lazily.
+
+    Computed on each call (rather than at import time) so tests can
+    monkeypatch :meth:`pathlib.Path.home` before constructing a store.
+    """
+    return Path.home() / DEFAULT_TEMPLATES_FILENAME
 
 
 class TemplateStore:
@@ -34,7 +43,7 @@ class TemplateStore:
         *,
         include_factory: bool = True,
     ) -> None:
-        self.path = Path(path) if path is not None else DEFAULT_TEMPLATES_PATH
+        self.path = Path(path) if path is not None else default_templates_path()
         # Switchable so tests / advanced callers can opt out of the
         # bundled presets without monkey-patching the loader.
         self._include_factory = include_factory
