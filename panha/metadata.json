@@ -1,16 +1,16 @@
 {
   "templates": {},
-  "last_template": "",
+  "last_template": "Rap 808 Banger",
   "last_state": {
     "enable": true,
-    "artist": "Bamboo Dawn",
-    "album": "Still at the Night",
+    "artist": "Panha",
+    "album": "Live",
     "year": "2026",
     "genre": "R&B",
     "rating": "5",
     "rating_min": 3,
     "rating_max": 5,
-    "cover_path": "",
+    "cover_path": "C:/Users/SAMNANG-TECH/Downloads/Woman_sitting_on_202604110036.jpeg",
     "engineer": "Banboo Dawn Studio",
     "copyright": "@BambooDawn",
     "software": "Bamboo Dawn Recording",
@@ -20,6 +20,21 @@
     "remove_track_number": true,
     "cover_w": 3000,
     "cover_h": 3000,
-    "mastering": {}
+    "mastering": {
+      "bypass": false,
+      "bass": 50,
+      "deep": 16,
+      "mid": 0,
+      "clear": 33,
+      "treble": 16,
+      "pres": 16,
+      "comp": 65,
+      "limit": 95,
+      "sat": 20,
+      "verb": 4,
+      "echo": 0,
+      "width": 10,
+      "gain": 16
+    }
   }
 }
