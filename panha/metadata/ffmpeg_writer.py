@@ -219,7 +219,21 @@ def write_metadata(
     ffmpeg_bin = _resolve_ffmpeg(ffmpeg)
 
     cover_file = resolve_cover_path(meta.cover_path) if meta.cover_path else ""
-    has_cover = bool(cover_file)
+
+    # Cover art can only be embedded as an attached picture in containers
+    # that support a video stream alongside audio.  WAV and OGG do NOT —
+    # trying to map a JPEG into them causes ffmpeg to exit with EINVAL
+    # (-22 / rc=4294967274 on Windows).
+    #
+    # Tested results (ffmpeg 7.x):
+    #   .mp3  → OK  (ID3v2 APIC frame, mjpeg)
+    #   .m4a  → OK  (MP4 cover atom, mjpeg)
+    #   .flac → OK  (FLAC PICTURE block, mjpeg)
+    #   .wav  → FAIL EINVAL
+    #   .ogg  → FAIL EINVAL ("Unsupported codec id in stream")
+    #   .aac  → FAIL (raw AAC has no container metadata)
+    _COVER_OK_SUFFIXES = frozenset({".mp3", ".mp2", ".m4a", ".mp4", ".flac"})
+    has_cover = bool(cover_file) and dst_path.suffix.lower() in _COVER_OK_SUFFIXES
 
     filter_parts: list[str] = []
     if lufs_target_lufs is not None:
