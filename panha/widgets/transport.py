@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
@@ -13,6 +15,49 @@ from PyQt6.QtWidgets import (
     QSlider,
     QWidget,
 )
+
+
+@contextlib.contextmanager
+def _quiet_c_stderr():
+    """Temporarily redirect C-level fd 2 (stderr) to devnull.
+
+    Qt multimedia's embedded FFmpeg writes ``Input #0, <format>, from
+    '<path>':`` and stream info to the process's C stderr (fd 2) via
+    ``av_log``.  This bypasses Qt's logging framework entirely so
+    ``QT_LOGGING_RULES`` has no effect on it.
+
+    We redirect fd 2 around ``QMediaPlayer.setSource()`` which is when
+    FFmpeg opens/probes the container.  The redirect is restored in the
+    ``finally`` block so our own Python-level error output is unaffected
+    once the call returns.  On failure (e.g. read-only fds) we yield
+    without redirecting — a no-op is always safe.
+    """
+    devnull_fd: int | None = None
+    saved_fd: int | None = None
+    try:
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        saved_fd = os.dup(2)
+        os.dup2(devnull_fd, 2)
+    except OSError:
+        # Can't redirect — yield without suppression (never fatal)
+        if devnull_fd is not None:
+            try:
+                os.close(devnull_fd)
+            except OSError:
+                pass
+        yield
+        return
+    try:
+        yield
+    finally:
+        try:
+            if saved_fd is not None:
+                os.dup2(saved_fd, 2)
+                os.close(saved_fd)
+            if devnull_fd is not None:
+                os.close(devnull_fd)
+        except OSError:
+            pass
 
 
 def _format_ms(ms: int) -> str:
@@ -107,7 +152,10 @@ class TransportBar(QWidget):
             self.scrubber.setRange(0, 0)
             return
         url = QUrl.fromLocalFile(str(Path(path).resolve()))
-        self._player.setSource(url)
+        # Suppress FFmpeg's raw "Input #0, wav, from '...'" log that Qt
+        # multimedia writes directly to C stderr (fd 2) when opening a file.
+        with _quiet_c_stderr():
+            self._player.setSource(url)
 
     def toggle_play(self) -> None:
         if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
