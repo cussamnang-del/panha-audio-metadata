@@ -651,6 +651,7 @@ class MainWindow(QMainWindow):
         worker.item_done.connect(self._on_item_done)
         worker.item_failed.connect(self._on_item_failed)
         worker.finished.connect(self._on_worker_finished)
+        thread.finished.connect(self._on_thread_finished)
         self._worker = worker
         self._thread = thread
         self.waveform.setActive(True)
@@ -677,10 +678,12 @@ class MainWindow(QMainWindow):
 
     def _on_worker_finished(self) -> None:
         self._worker = None
-        self._thread = None
         self.waveform.setActive(False)
         self.progress.setValue(100)
         self._update_buttons()
+
+    def _on_thread_finished(self) -> None:
+        self._thread = None
 
     # -- context menu --------------------------------------------------
 
