@@ -51,11 +51,11 @@ _WAV_BIT_DEPTH_CODECS = {
 
 @dataclasses.dataclass
 class ExportSettings:
-    format: str = PRESERVE_SOURCE_FORMAT
-    sample_rate: str = PRESERVE_SOURCE_SAMPLE_RATE
-    bit_depth: str = "24-bit"
+    format: str = "WAV"
+    sample_rate: str = "44100 Hz"
+    bit_depth: str = "32-bit"
     max_threads: int = 4
-    suno_bypass: bool = False
+    suno_bypass: bool = True
     vocal_clarity: bool = False
     soft_clip: bool = False
     lufs_target: str = "Off"

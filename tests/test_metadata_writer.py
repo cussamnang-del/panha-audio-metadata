@@ -441,13 +441,21 @@ def test_export_settings_helpers_translate_dialog_strings():
     assert es.parsed_lufs_target() == -14.0
     assert es.codec_args_override() == ["-c:a", "pcm_s24le"]
 
-    # Default state: everything is a no-op (preserve source, no LUFS).
-    default = ExportSettings()
-    assert default.output_suffix_for(".flac") == ".flac"
-    assert default.output_suffix_for("") == ".mp3"
-    assert default.parsed_sample_rate_hz() is None
-    assert default.parsed_lufs_target() is None
-    assert default.codec_args_override() is None
+    # Preserve-source state: everything is a no-op.
+    from panha.dialogs.export_settings_dialog import (
+        PRESERVE_SOURCE_FORMAT,
+        PRESERVE_SOURCE_SAMPLE_RATE,
+    )
+    preserve = ExportSettings(
+        format=PRESERVE_SOURCE_FORMAT,
+        sample_rate=PRESERVE_SOURCE_SAMPLE_RATE,
+        suno_bypass=False,
+    )
+    assert preserve.output_suffix_for(".flac") == ".flac"
+    assert preserve.output_suffix_for("") == ".mp3"
+    assert preserve.parsed_sample_rate_hz() is None
+    assert preserve.parsed_lufs_target() is None
+    assert preserve.codec_args_override() is None
 
     # MP3-as-target: no bit-depth codec override (bit depth is WAV-only).
     mp3 = ExportSettings(format="MP3", bit_depth="32-bit")

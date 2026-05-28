@@ -95,7 +95,7 @@ class MainWindow(QMainWindow):
         # Restore state from panha/metadata.json on startup.
         self._info_state: FileInformationState = self._config.load_last_state()
         self._export_settings = ExportSettings()
-        self._output_dir: str = str(Path.home() / "PanhaExports")
+        self._output_dir: str = str(Path.home() / "Music")
         self._export_settings.output_dir = self._output_dir
         self._worker: BatchWorker | None = None
         self._thread: QThread | None = None

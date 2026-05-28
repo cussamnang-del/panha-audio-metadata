@@ -204,10 +204,13 @@ def test_build_items_passes_export_settings_through(tmp_path: Path):
 
 
 def test_build_items_preserves_source_format_by_default(tmp_path: Path):
-    """The default ExportSettings (Format='Same as source', no LUFS,
-    no sample-rate override) must not change behavior vs. pre-wiring:
-    output suffix matches the source and no force_re_encode."""
-    from panha.dialogs.export_settings_dialog import ExportSettings
+    """When Format='Same as source' with no LUFS/sample-rate override,
+    the output suffix must match the source and force_re_encode must be False."""
+    from panha.dialogs.export_settings_dialog import (
+        PRESERVE_SOURCE_FORMAT,
+        PRESERVE_SOURCE_SAMPLE_RATE,
+        ExportSettings,
+    )
     from panha.dialogs.file_info_dialog import FileInformationState
     from panha.widgets.worker import build_items
 
@@ -215,9 +218,12 @@ def test_build_items_preserves_source_format_by_default(tmp_path: Path):
     src.write_bytes(b"")
     state = FileInformationState(metadata=Metadata(artist="A"))
 
-    items = build_items(
-        [str(src)], str(tmp_path / "out"), state, export=ExportSettings()
+    export = ExportSettings(
+        format=PRESERVE_SOURCE_FORMAT,
+        sample_rate=PRESERVE_SOURCE_SAMPLE_RATE,
+        suno_bypass=False,  # test UI-state path, not config-file path
     )
+    items = build_items([str(src)], str(tmp_path / "out"), state, export=export)
     item = items[0]
     assert Path(item.target).suffix == ".flac"
     assert item.sample_rate_hz is None
@@ -315,8 +321,11 @@ def test_build_items_threads_cover_max_size(tmp_path: Path):
         metadata=Metadata(artist="A"),
         tracklist=TracklistOptions(cover_size=800, cover_height=600),
     )
+    # suno_bypass=False so build_items reads cover size from UI state, not the
+    # config file (which ships with cover_w=3000 as its default).
     items = build_items(
-        [str(src)], str(tmp_path / "out"), state, export=ExportSettings()
+        [str(src)], str(tmp_path / "out"), state,
+        export=ExportSettings(suno_bypass=False),
     )
     assert items[0].cover_max_size == (800, 600)
 
@@ -335,7 +344,10 @@ def test_build_items_disables_cover_resize_when_size_zero(tmp_path: Path):
         metadata=Metadata(),
         tracklist=TracklistOptions(cover_size=0, cover_height=0),
     )
+    # suno_bypass=False so build_items reads cover size from UI state (0,0),
+    # not from the config file which has non-zero defaults.
     items = build_items(
-        [str(src)], str(tmp_path / "out"), state, export=ExportSettings()
+        [str(src)], str(tmp_path / "out"), state,
+        export=ExportSettings(suno_bypass=False),
     )
     assert items[0].cover_max_size is None
