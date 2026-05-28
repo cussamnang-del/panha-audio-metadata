@@ -207,6 +207,7 @@ def build_items(
             ),
             force_re_encode=force_re_encode,
             cover_max_size=cover_max_size,
+            strip_source_metadata=strip_source_metadata,
         ))
     return items
 
